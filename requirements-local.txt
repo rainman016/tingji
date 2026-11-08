@@ -1,0 +1,6 @@
+-r requirements.txt
+funasr==1.4.20
+numpy>=1.26.4,<2
+transformers>=4.51,<5
+# 3.7.0 snapshot enumeration corrupts Chinese paths on this Windows host.
+threadpoolctl==3.6.0
