@@ -4,7 +4,9 @@
 
 ## 开发与测试
 
-安装基础依赖后运行 `python -B -m unittest discover -s tests -v`。完整本机回归使用已安装的项目环境。普通测试使用合成材料和模拟引擎，不下载模型或运行长视频。
+先运行 `python -m pip install -r requirements.txt numpy` 安装测试依赖，再运行 `python -B -m unittest discover -s tests -v`。完整本机回归使用已安装的项目环境。普通测试使用合成材料和模拟引擎，不下载模型或运行长视频。
+
+GitHub Actions 当前尚未启用，已提供 [Windows 回归模板](docs/ci/windows-regression.yml)。维护者可在 GitHub 网页创建 `.github/workflows/tests.yml` 并复制模板内容，或使用具备工作流写入权限的 Git 客户端提交该文件。启用后会在推送、拉取请求和手动触发时运行普通回归；真实模型测试仍需显式运行。
 
 `tests/render_workspace.py` 创建独立合成文稿窗口并捕获该窗口，检查宽窄布局。真实模型测试为显式入口：`tests/validate_summary_recovery.py stop <文稿.json> <输出目录>`，结束后再运行相同参数的 `resume`。这会占用本机 GPU，并将测试副本写入输出目录；请不要将私人文稿提交到仓库。
 
