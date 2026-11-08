@@ -9,3 +9,10 @@ LINE = '#E2E9E5'
 SOFT = '#EBF2EE'
 SIDE = BG
 FONT = 'Microsoft YaHei UI'
+
+# CTk uses pixel sizes; native Text widgets use point sizes.
+UI_BODY = 14
+UI_CAPTION = 13
+READING_FONT = (FONT, 14)
+SUMMARY_FONT = (FONT, 13)
+READING_META = (FONT, 11)

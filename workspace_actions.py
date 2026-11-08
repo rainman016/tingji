@@ -27,6 +27,7 @@ class WorkspaceActions:
         self._audio_segment_index = None
         self._editor_open = False
         self._settings_open = True
+        self._summary_editing = False
         self._speaker_keys = []
 
     def bind_workspace(self):
@@ -280,7 +281,7 @@ class WorkspaceActions:
 
     def update_summary_state(self):
         if hasattr(self, 'summary_empty'):
-            if self.doc and self.doc.get('summary'):
+            if self._summary_editing or (self.doc and self.doc.get('summary')):
                 self.summary_empty.place_forget()
             else:
                 self.summary_empty.configure(text=('正在整理摘要…\n你可以先阅读和导出文字稿。'
@@ -298,7 +299,7 @@ class WorkspaceActions:
             text = f"摘要已生成 · {self.doc['summary'].count('时间待核对')} 处时间需核对"
         else:
             text = ('已手动编辑 · 要点需核对原文' if self.doc.get('summary_review', {}).get('status') == 'edited'
-                    else '摘要已生成 · 要点需核对原文')
+                    else '要点需核对原文 · 点击时间定位')
         if self.doc and self.doc.get('status') != '生成摘要' and self.doc.get('summary'):
             inference = self.doc.get('summary_inference', {})
             device = inference.get('device')
@@ -314,6 +315,31 @@ class WorkspaceActions:
         if missing:
             text += f' · {missing} 条要点缺少出处'
         self.summary_state.set(text)
+
+    def toggle_summary_edit(self):
+        if self.document_locked or not self.doc or not self.doc.get('segments'):
+            return
+        if self._summary_editing:
+            self.summary_changed()
+            if not self.flush_edits():
+                return
+        self._summary_editing = not self._summary_editing
+        self.update_summary_mode()
+        if self._summary_editing:
+            self.summary_editor.focus_set()
+
+    def update_summary_mode(self):
+        if self._summary_editing:
+            self.summary_reader.pack_forget()
+            self.summary_editor.pack(fill='both', expand=True, padx=8)
+            self.summary_mode_label.pack(anchor='w', pady=(6, 4))
+        else:
+            self.summary_editor.pack_forget()
+            self.summary_reader.pack(fill='both', expand=True)
+            self.summary_mode_label.pack_forget()
+        self.summary_edit_button.configure(text='完成编辑' if self._summary_editing else '编辑摘要')
+        self.summary_mode_hint.set('修改自动保存 · 完成后返回阅读' if self._summary_editing else '点击时间戳，定位原文')
+        self.update_summary_state()
 
     def refresh_summary_links(self):
         from summary_presentation import format_summary
@@ -338,6 +364,8 @@ class WorkspaceActions:
             if self.summary_editor.get(match, end).strip('[]') in allowed:
                 self.summary_editor.tag_add("citation", match, end)
             position = end
+        self.summary_reader.render((self.doc or {}).get('summary', ''), allowed,
+                                   identity=(self.doc or {}).get('id'))
 
     def follow_summary_citation(self, event):
         position = self.summary_editor.index(f"@{event.x},{event.y}")

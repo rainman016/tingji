@@ -50,7 +50,7 @@ class TranscriptReader(tk.Frame):
             self, wrap="word", state="disabled", undo=False,
             borderwidth=0, highlightthickness=0, relief="flat",
             background=background, foreground=foreground, font=font,
-            padx=18, pady=12, spacing3=4, cursor="xterm", takefocus=True,
+            padx=18, pady=12, spacing2=5, spacing3=8, cursor="xterm", takefocus=True,
             selectbackground="#D8E9DD", selectforeground=foreground,
             insertbackground=accent,
         )
@@ -60,6 +60,7 @@ class TranscriptReader(tk.Frame):
         self.scrollbar.pack(side="right", fill="y")
         self.text.tag_configure("metadata", foreground=muted, font=metadata_font, spacing1=8, spacing3=3)
         self.text.tag_configure("timestamp", foreground=accent, underline=True)
+        self.text.tag_configure("cjk", wrap="char")
         self.text.tag_configure("current_segment", background=selected_background)
         self.text.tag_configure("search_match", background=match_background)
         self.text.tag_configure("current_match", background=active_match_background)
@@ -114,6 +115,11 @@ class TranscriptReader(tk.Frame):
         self.text.mark_gravity(self._body_mark(index), "right")
         self.text.tag_add("metadata", start, f"{body}-1c")
         self.text.tag_add("timestamp", start, f"{start}+{len(_timestamp(self._segments[index].get('start_ms', 0)))}c")
+        content = str(self._segments[index].get('text', ''))
+        end = f"{start_line + content.count(chr(10)) + 1}.end"
+        self.text.tag_remove('cjk', start, f'{end}+1c')
+        if len(re.findall(r'[\u3400-\u9fff]', content)) > len(content) * .2:
+            self.text.tag_add('cjk', body, end)
 
     def _refresh_start_lines(self):
         line = 1

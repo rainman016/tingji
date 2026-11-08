@@ -35,7 +35,7 @@ class App(WorkspaceActions, ctk.CTk):
         if os.name == "nt" and icon.is_file():
             self.iconbitmap(default=str(icon))
             self.iconbitmap(str(icon))
-        self.title("听记 · 本地视频转文字")
+        self.title("听记 · 音视频文稿工作台")
         self.geometry("1240x820")
         self.minsize(960, 680)
         self.configure(fg_color=BG)
@@ -66,7 +66,7 @@ class App(WorkspaceActions, ctk.CTk):
         self._recovery = {"available": False}
         self.save_status = tk.StringVar(value="修改自动保存")
         self.notice_text = tk.StringVar(value="")
-        self.status = tk.StringVar(value="选择视频后开始；也可以先打开示例体验编辑与导出。")
+        self.status = tk.StringVar(value="选择音视频开始，或打开演示文稿体验阅读与校对。")
         self.title_text = tk.StringVar(value="新建转写")
         self.meta = tk.StringVar(value="导入音视频，整理成可阅读、可编辑的文稿。")
         self.init_workspace_state()
@@ -152,6 +152,7 @@ class App(WorkspaceActions, ctk.CTk):
             self.stop_audio()
             self.search_query.set("")
             self._editor_open = False
+            self._summary_editing = False
         if not same_document or (not previously_had_text and doc["segments"]):
             self._settings_open = not bool(doc["segments"])
         selected = self.selected if same_document else None
@@ -241,6 +242,10 @@ class App(WorkspaceActions, ctk.CTk):
         self.rename_button.configure(state="normal" if not locked and has_text else "disabled")
         self.segment_editor.configure(state="normal" if not locked and has_text else "disabled")
         self.summary_editor.configure(state="normal" if not locked and has_text else "disabled")
+        self.summary_edit_button.configure(state="normal" if not locked and has_text else "disabled")
+        if locked:
+            self._summary_editing = False
+        self.update_summary_mode()
         self.rename_document_button.configure(state="normal" if self.doc and not locked else "disabled")
         self.speaker_box.configure(state="readonly" if has_text and not locked else "disabled")
         self.merge_button.configure(state="normal" if has_text and not locked and len(self.doc["speakers"]) > 1 else "disabled")

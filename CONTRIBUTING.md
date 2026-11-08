@@ -13,6 +13,7 @@ GitHub Actions 当前尚未启用，已提供 [Windows 回归模板](docs/ci/win
 ## 代码入口
 
 - `app.py` / `desktop_ui.py`：桌面任务与视觉层；`workspace_actions.py` / `workspace_view.py`：阅读、校对和响应式布局。
+- `summary_reader.py`：只读摘要排版、有效引用和键盘导航；原始编辑与导出内容保持分离。
 - `local_service.py`：本地任务、持久化、进程调度；`local_worker.py`：摘要和识别 worker。
 - `checkpoint_store.py` / `transcription_recovery.py`：识别恢复与进程锁。
 - `summary_state.py` / `summary_resume.py`：摘要版本快照和逐步恢复；`summary_format.py`：结构校验与有界重试；`summary_validation.py`：引用核对。

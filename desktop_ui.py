@@ -7,24 +7,25 @@ import customtkinter as ctk
 
 from transcript_reader import TranscriptReader
 from workspace_view import WorkspaceView
+from summary_reader import SummaryReader
 
-from ui_theme import BG, PAPER, INK, MUTED, ACCENT, HOVER, LINE, SOFT, SIDE, FONT
+from ui_theme import BG, PAPER, INK, MUTED, ACCENT, HOVER, LINE, SOFT, SIDE, FONT, UI_BODY, UI_CAPTION, READING_FONT, READING_META
 
 
 def label(parent, text=None, *, variable=None, size=13, color=INK, bold=False, **kwargs):
     return ctk.CTkLabel(parent, text=text or "", textvariable=variable,
-                        font=(FONT, size, "bold" if bold else "normal"),
+                        font=(FONT, max(size, UI_CAPTION), "bold" if bold else "normal"),
                         text_color=color, anchor="w", **kwargs)
 
 
 def button(parent, text, command, *, primary=False, quiet=False, width=100, height=36):
     border = 0 if primary or quiet else 1
-    widget = ctk.CTkButton(parent, text=text, command=command, width=width, height=height,
+    widget = ctk.CTkButton(parent, text=text, command=command, width=width, height=max(height, 36),
                           corner_radius=8, border_width=border, border_color=LINE,
                           fg_color=ACCENT if primary else ("transparent" if quiet else PAPER),
                           hover_color=HOVER if primary else "#E2EBE5",
                           text_color=PAPER if primary else INK,
-                          text_color_disabled="#9BA79F", font=(FONT, 13))
+                          text_color_disabled="#9BA79F", font=(FONT, UI_BODY))
     # CTk buttons are frames; give keyboard users the same visible focus affordance.
     widget.tk.call(widget._w, "configure", "-takefocus", 1)
     widget.bind("<Return>", lambda _event: widget.invoke())
@@ -35,18 +36,18 @@ def button(parent, text, command, *, primary=False, quiet=False, width=100, heig
 
 
 def combo(parent, variable, values, width):
-    return ctk.CTkComboBox(parent, variable=variable, values=values, width=width, height=32,
+    return ctk.CTkComboBox(parent, variable=variable, values=values, width=width, height=36,
                            state="readonly", corner_radius=7, border_width=1,
                            border_color=LINE, fg_color=PAPER, button_color=SOFT,
                            button_hover_color="#DCE8E0", text_color=INK,
                            text_color_disabled=MUTED, dropdown_fg_color=PAPER,
                            dropdown_text_color=INK, dropdown_hover_color=SOFT,
-                           font=(FONT, 12), dropdown_font=(FONT, 12))
+                           font=(FONT, UI_BODY), dropdown_font=(FONT, UI_BODY))
 
 
 def configure_theme(app):
     ctk.set_appearance_mode("light")
-    ctk.ThemeManager.theme["CTkFont"].update(family=FONT, size=13, weight="normal")
+    ctk.ThemeManager.theme["CTkFont"].update(family=FONT, size=UI_BODY, weight="normal")
     app.option_add("*Font", (FONT, 10))
     app.option_add("*TCombobox*Listbox.font", (FONT, 10))
     style = ttk.Style(app)
@@ -59,7 +60,7 @@ def configure_theme(app):
 def build_ui(app):
     app.grid_columnconfigure(1, weight=1)
     app.grid_rowconfigure(0, weight=1)
-    sidebar = ctk.CTkFrame(app, width=216, corner_radius=0, fg_color=SIDE)
+    sidebar = ctk.CTkFrame(app, width=224, corner_radius=0, fg_color=SIDE)
     sidebar.grid(row=0, column=0, sticky="nsw")
     sidebar.grid_propagate(False)
     sidebar.grid_columnconfigure(0, weight=1)
@@ -75,23 +76,23 @@ def build_ui(app):
     for x, height in zip((5, 11, 17, 23), (9, 20, 15, 7)):
         wave.create_line(x, 14-height/2, x, 14+height/2, fill=PAPER, width=3, capstyle="round")
     label(brand, "听记", size=23, bold=True).pack(side="left")
-    app.new_button = button(sidebar, "新建转写", app.choose_file, primary=True, height=36)
+    app.new_button = button(sidebar, "＋  新建转写", app.choose_file, primary=True, height=40)
     app.new_button.grid(row=1, column=0, sticky="ew", padx=16, pady=(0, 16))
 
     library_head = ctk.CTkFrame(sidebar, fg_color="transparent")
     library_head.grid(row=2, column=0, sticky="ew", padx=16, pady=(0, 8))
-    label(library_head, "我的文稿", size=12, color=MUTED, bold=True).pack(anchor="w", padx=3, pady=(0, 8))
+    label(library_head, "搜索文稿", size=13, color=MUTED, bold=True).pack(anchor="w", padx=3, pady=(0, 8))
     app.history_search_entry = ctk.CTkEntry(library_head, textvariable=app.history_query,
-                                          placeholder_text="搜索文稿", height=32,
+                                          placeholder_text="搜索文稿", height=36,
                                           border_width=1, border_color=LINE, fg_color=BG,
-                                          text_color=INK, font=(FONT, 12))
+                                          text_color=INK, font=(FONT, UI_BODY))
     app.history_search_entry.pack(fill="x")
     history_area = ctk.CTkFrame(sidebar, fg_color="transparent")
     history_area.grid(row=3, column=0, sticky="nsew", padx=14)
     app.history = tk.Listbox(history_area, bg=SIDE, fg=INK, selectbackground="#DDE9E1",
                              selectforeground=ACCENT, borderwidth=0, highlightthickness=1,
                              highlightbackground=SIDE, highlightcolor="#7CA38D", activestyle="dotbox",
-                             exportselection=False, font=(FONT, 10), relief="flat")
+                             exportselection=False, font=(FONT, 11), relief="flat")
     history_scroll = ctk.CTkScrollbar(history_area, command=app.history.yview, width=10,
                                      fg_color=SIDE, button_color="#D2DDD5", button_hover_color="#AFBFB3")
     app.history.configure(yscrollcommand=history_scroll.set)
@@ -107,11 +108,22 @@ def build_ui(app):
     app.example_button.pack(fill="x")
     button(utility, "打开文稿文件夹", app.open_results, quiet=True, height=30).pack(fill="x", pady=(0, 10))
     ctk.CTkFrame(utility, fg_color=LINE, height=1).pack(fill="x", padx=4, pady=(0, 10))
-    label(utility, "●  本地处理", size=11, color=ACCENT, bold=True).pack(anchor="w", padx=6)
-    label(utility, variable=app.models_label, size=10, color=MUTED, justify="left").pack(anchor="w", padx=6, pady=(3, 6))
-    app.device_box = combo(utility, app.device, ["自动（优先显卡）", "仅 CPU"], 174)
+    label(utility, "●  本机处理", size=13, color=ACCENT, bold=True).pack(anchor="w", padx=6)
+    label(utility, "音视频和文稿留在本机", size=13, color=MUTED).pack(anchor="w", padx=6, pady=(2, 8))
+    app.environment_panel = ctk.CTkFrame(utility, fg_color="transparent")
+    def toggle_environment():
+        app._environment_open = not getattr(app, '_environment_open', False)
+        if app._environment_open:
+            app.environment_panel.pack(fill='x', pady=(6, 0))
+        else:
+            app.environment_panel.pack_forget()
+        app.environment_button.configure(text='收起运行设置  ▴' if app._environment_open else '运行设置  ▾')
+    app.environment_button = button(utility, '运行设置  ▾', toggle_environment, quiet=True)
+    app.environment_button.pack(fill='x')
+    label(app.environment_panel, variable=app.models_label, size=13, color=MUTED, justify="left").pack(anchor="w", padx=6, pady=(3, 6))
+    app.device_box = combo(app.environment_panel, app.device, ["自动（优先显卡）", "仅 CPU"], 174)
     app.device_box.pack(fill="x", padx=2, pady=(2, 6))
-    links = ctk.CTkFrame(utility, fg_color="transparent")
+    links = ctk.CTkFrame(app.environment_panel, fg_color="transparent")
     links.pack(fill="x")
     button(links, "检查模型", app.check_models, quiet=True, width=86, height=28).pack(side="left")
     button(links, "使用说明", app.show_help, quiet=True, width=86, height=28).pack(side="right")
@@ -123,17 +135,32 @@ def build_ui(app):
     heading = ctk.CTkFrame(main, fg_color="transparent")
     heading.grid(row=0, column=0, sticky="ew", pady=(0, 12))
     heading.grid_columnconfigure(0, weight=1)
-    app.heading_label = label(heading, variable=app.title_text, size=22, bold=True, wraplength=650, justify="left")
+    app.heading_label = label(heading, variable=app.title_text, size=26, bold=True, wraplength=650, justify="left")
     app.heading_label.grid(row=0, column=0, sticky="w", padx=(0, 10))
     heading_actions = ctk.CTkFrame(heading, fg_color="transparent")
     heading_actions.grid(row=0, column=1, sticky="ne")
-    app.rename_document_button = button(heading_actions, "重命名", app.rename_document, quiet=True, width=68, height=32)
+    app.rename_document_button = button(heading_actions, "重命名", app.rename_document, quiet=True, width=76, height=36)
     app.rename_document_button.pack(side="left", padx=(0, 4))
     app.rename_document_button.configure(state="disabled")
-    app.settings_button = button(heading_actions, "转写设置", app.toggle_settings, width=86, height=32)
-    app.settings_button.pack(side="left")
+    app.settings_button = button(heading_actions, "转写设置", app.toggle_settings, quiet=True, width=94, height=36)
+    app.settings_button.pack(side="left", padx=(0, 8))
+    app.export_menu = tk.Menu(app, tearoff=False, font=(FONT, 11), bg=PAPER, fg=INK,
+                             activebackground=SOFT, activeforeground=ACCENT)
+    for title, kind in [('文字稿  ·  TXT', 'txt'), ('字幕文件  ·  SRT', 'srt'),
+                        ('原文与摘要  ·  Markdown', 'md'), ('完整数据  ·  JSON', 'json')]:
+        app.export_menu.add_command(label=title, command=lambda k=kind: app.export(k))
+    def show_export():
+        try:
+            app.export_menu.tk_popup(app.export_button.winfo_rootx(),
+                app.export_button.winfo_rooty() + app.export_button.winfo_height())
+        finally:
+            app.export_menu.grab_release()
+    app.export_button = button(heading_actions, '导出文稿  ▾', show_export, primary=True, width=116, height=40)
+    app.export_button.pack(side='left')
+    app.export_button.configure(state='disabled')
+    app.export_buttons = [app.export_button]
     label(heading, variable=app.meta, size=11, color=MUTED).grid(row=1, column=0, columnspan=2, sticky="w", pady=(4, 0))
-    heading.bind("<Configure>", lambda e: app.heading_label.configure(wraplength=max(240, e.width-180)))
+    heading.bind("<Configure>", lambda e: app.heading_label.configure(wraplength=max(220, e.width-330)))
 
     app.source_panel = source = ctk.CTkFrame(main, fg_color=PAPER, corner_radius=10, border_width=1, border_color=LINE)
     source.grid(row=1, column=0, sticky="ew", pady=(0, 10))
@@ -215,13 +242,7 @@ def build_ui(app):
 
     footer = ctk.CTkFrame(main, fg_color="transparent")
     footer.grid(row=5, column=0, sticky="ew", pady=(10, 6))
-    label(footer, "导出", size=11, color=MUTED).pack(side="left", padx=(0, 10))
-    app.export_buttons = []
-    for title, kind, width in [("TXT", "txt", 54), ("SRT 字幕", "srt", 84), ("Markdown", "md", 94), ("JSON", "json", 60)]:
-        item = button(footer, title, lambda k=kind: app.export(k), width=width, height=30)
-        item.pack(side="left", padx=(0, 6))
-        item.configure(state="disabled")
-        app.export_buttons.append(item)
+    label(footer, "Ctrl+F 搜索  ·  Ctrl+Enter 回听", size=13, color=MUTED).pack(side="left")
     label(footer, variable=app.save_status, size=10, color=MUTED,
           width=150, wraplength=150, justify="right").pack(side="right")
     app.status_label = label(main, variable=app.status, size=10, color=MUTED,
@@ -237,7 +258,7 @@ def _build_reader(app, transcript):
     label(search_row, "查找", size=11, color=MUTED).grid(row=0, column=0, padx=(0, 8))
     app.search_entry = ctk.CTkEntry(search_row, textvariable=app.search_query,
                                    placeholder_text="搜索文字  Ctrl+F", height=32, width=120,
-                                   fg_color=BG, border_color=LINE, text_color=INK, font=(FONT, 12))
+                                   fg_color=BG, border_color=LINE, text_color=INK, font=(FONT, UI_BODY))
     app.search_entry.grid(row=0, column=1, sticky="ew", padx=(0, 8))
     label(search_row, variable=app.search_result, size=10, color=MUTED, width=56).grid(row=0, column=2, padx=(0, 6))
     app.search_prev_button = button(search_row, "上个", app.search_previous, quiet=True, width=44, height=30)
@@ -247,17 +268,17 @@ def _build_reader(app, transcript):
     app.search_prev_button.configure(state="disabled")
     app.search_next_button.configure(state="disabled")
 
-    audio = ctk.CTkFrame(transcript, fg_color=SOFT, corner_radius=8)
-    audio.pack(fill="x", padx=12, pady=(0, 8))
+    audio = ctk.CTkFrame(transcript, fg_color=SOFT, corner_radius=10)
+    audio.pack(side="bottom", fill="x", padx=16, pady=(4, 16))
     audio_actions = ctk.CTkFrame(audio, fg_color="transparent")
     audio_actions.pack(fill="x", padx=8, pady=(6, 0))
-    app.play_button = button(audio_actions, "回听本段", app.toggle_audio, primary=True, width=84, height=30)
+    app.play_button = button(audio_actions, "回听本段", app.toggle_audio, primary=True, width=90, height=36)
     app.play_button.pack(side="left", padx=(0, 6))
-    app.replay_button = button(audio_actions, "重播", app.play_current_segment, quiet=True, width=54, height=30)
+    app.replay_button = button(audio_actions, "重播", app.play_current_segment, quiet=True, width=54, height=36)
     app.replay_button.pack(side="left", padx=(0, 4))
-    app.audio_stop_button = button(audio_actions, "停止回听", app.stop_audio, quiet=True, width=76, height=30)
+    app.audio_stop_button = button(audio_actions, "停止", app.stop_audio, quiet=True, width=54, height=36)
     app.audio_stop_button.pack(side="left")
-    app.relink_button = button(audio_actions, "重新关联", app.relink_source, quiet=True, width=76, height=30)
+    app.relink_button = button(audio_actions, "重新关联", app.relink_source, quiet=True, width=80, height=36)
     app.relink_button.pack(side="right")
     for item in (app.play_button, app.replay_button, app.audio_stop_button, app.relink_button):
         item.configure(state="disabled")
@@ -266,8 +287,8 @@ def _build_reader(app, transcript):
     audio_hint.pack(fill="x", padx=10, pady=(1, 6))
     audio.bind("<Configure>", lambda e: audio_hint.configure(wraplength=max(200, e.width-20)))
 
-    editor_area = ctk.CTkFrame(transcript, fg_color="#F5F8F6", corner_radius=8)
-    editor_area.pack(side="bottom", fill="x", padx=12, pady=(8, 12))
+    editor_area = ctk.CTkFrame(transcript, fg_color=PAPER, corner_radius=8)
+    editor_area.pack(side="bottom", fill="x", padx=16, pady=(4, 0))
     edit_heading = ctk.CTkFrame(editor_area, fg_color="transparent")
     edit_heading.pack(fill="x", padx=10, pady=5)
     edit_heading.grid_columnconfigure(0, weight=1)
@@ -279,8 +300,8 @@ def _build_reader(app, transcript):
     app.previous_segment_button.grid(row=0, column=1, padx=(0, 2))
     app.next_segment_button = button(edit_heading, "下一段", app.next_segment, quiet=True, width=58, height=26)
     app.next_segment_button.grid(row=0, column=2, padx=(0, 6))
-    app.editor_toggle_button = button(edit_heading, "校对本段", app.toggle_editor, width=80, height=28)
-    app.editor_toggle_button.grid(row=0, column=3)
+    app.editor_toggle_button = button(audio_actions, "校对本段", app.toggle_editor, width=92, height=36)
+    app.editor_toggle_button.pack(side="right", padx=(0, 4))
     for item in (app.previous_segment_button, app.next_segment_button, app.editor_toggle_button):
         item.configure(state="disabled")
     app.editor_body = ctk.CTkFrame(editor_area, fg_color="transparent")
@@ -301,7 +322,7 @@ def _build_reader(app, transcript):
     app.segment_editor = ScrolledText(app.editor_body, height=3, width=1, wrap="word", undo=True,
                                        borderwidth=0, highlightthickness=0, relief="flat",
                                        bg="#F5F8F6", fg=INK, insertbackground=ACCENT,
-                                       padx=4, pady=5, font=(FONT, 11), spacing3=4,
+                                       padx=8, pady=8, font=READING_FONT, spacing2=4, spacing3=8,
                                        selectbackground="#D8E9DD", selectforeground=INK)
     app.segment_editor.pack(fill="x", padx=8, pady=(0, 6))
     app.segment_editor.bind("<<Modified>>", app.segment_changed)
@@ -310,7 +331,7 @@ def _build_reader(app, transcript):
     app.reader = TranscriptReader(transcript, on_select=app.select_segment,
                                    on_play=app.play_segment, on_search_change=app.search_results_changed,
                                    background=PAPER, foreground=INK, muted_color=MUTED,
-                                   accent_color=ACCENT, font=(FONT, 12), metadata_font=(FONT, 10))
+                                   accent_color=ACCENT, font=READING_FONT, metadata_font=READING_META)
     app.reader.pack(fill="both", expand=True, padx=12)
 
     app.empty_state = ctk.CTkFrame(transcript, fg_color=PAPER, corner_radius=8)
@@ -331,12 +352,18 @@ def _build_reader(app, transcript):
 def _build_summary(app, summary):
     summary_head = ctk.CTkFrame(summary, fg_color="transparent")
     summary_head.pack(fill="x", padx=16, pady=(12, 4))
-    label(summary_head, "摘要与要点", size=18, bold=True).pack(anchor="w")
+    title_row = ctk.CTkFrame(summary_head, fg_color="transparent")
+    title_row.pack(fill='x')
+    label(title_row, "摘要", size=20, bold=True).pack(side='left')
+    app.summary_edit_button = button(title_row, "编辑摘要", app.toggle_summary_edit, width=96, height=36)
+    app.summary_edit_button.pack(side='right')
+    app.summary_edit_button.configure(state='disabled')
     state_label = label(summary_head, variable=app.summary_state, size=10, color=MUTED,
                         wraplength=310, justify="left")
     state_label.pack(fill="x", pady=(3, 0))
     summary_head.bind("<Configure>", lambda e: state_label.configure(wraplength=max(180, e.width)))
-    label(summary_head, "可直接编辑 · Ctrl + 点击引用核对原文", size=11, color=MUTED).pack(anchor="w", pady=(6, 4))
+    app.summary_mode_hint = tk.StringVar(value='点击时间戳，定位原文')
+    app.summary_mode_label = label(summary_head, variable=app.summary_mode_hint, size=13, color=MUTED)
     app.restart_summary_button = button(summary_head, "放弃续算，重新生成", app.restart_summary,
                                         quiet=True, width=160, height=28)
     summary_actions = ctk.CTkFrame(summary, fg_color="transparent")
@@ -347,15 +374,18 @@ def _build_summary(app, summary):
     app.summary_button = button(summary_actions, "生成摘要", app.summarize, width=124, height=32)
     app.summary_button.pack(side="right")
     app.summary_button.configure(state="disabled")
-    app.summary_editor = ScrolledText(summary, wrap="char", width=1, height=1, undo=True,
+    app.summary_body = ctk.CTkFrame(summary, fg_color=PAPER, corner_radius=0, height=1, width=1)
+    app.summary_body.pack(fill='both', expand=True, padx=4, pady=(0, 4))
+    app.summary_reader = SummaryReader(app.summary_body, app.jump_to_time)
+    app.summary_reader.pack(fill='both', expand=True)
+    app.summary_editor = ScrolledText(app.summary_body, wrap="word", width=1, height=1, undo=True,
                                        borderwidth=0, highlightthickness=0, bg=PAPER, fg=INK,
-                                       insertbackground=ACCENT, padx=10, pady=8, spacing3=9,
-                                       font=(FONT, 11), selectbackground="#D8E9DD", selectforeground=INK)
-    app.summary_editor.pack(fill="both", expand=True, padx=8, pady=(0, 2))
+                                       insertbackground=ACCENT, padx=16, pady=12, spacing2=4, spacing3=10,
+                                       font=READING_FONT, selectbackground="#D8E9DD", selectforeground=INK)
     app.summary_editor.bind("<<Modified>>", app.summary_changed)
     app.summary_editor.configure(state="disabled")
     modern_scrollbar(app.summary_editor, PAPER)
-    app.summary_empty = label(app.summary_editor.frame, '完成转写后，在这里整理摘要。',
+    app.summary_empty = label(app.summary_body, '完成转写后，在这里整理摘要。',
                                size=13, color=MUTED, wraplength=230, justify='center')
     app.summary_empty.place(relx=.5, rely=.35, anchor='center')
 

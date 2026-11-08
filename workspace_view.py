@@ -4,6 +4,7 @@ from __future__ import annotations
 import tkinter as tk
 
 import customtkinter as ctk
+from ui_theme import FONT, INK, MUTED, SOFT, LINE, PAPER, ACCENT, UI_BODY
 
 
 class WorkspaceView(ctk.CTkFrame):
@@ -23,16 +24,17 @@ class WorkspaceView(ctk.CTkFrame):
         navigation.grid(row=0, column=0, sticky="ew", pady=(0, 8))
         self.navigation = ctk.CTkSegmentedButton(
             navigation, values=[], command=self.set, height=32,
-            font=("Microsoft YaHei UI", 12), corner_radius=7,
+            font=(FONT, UI_BODY), corner_radius=7,
             fg_color="#E7EDE9", selected_color="#FFFFFF",
             selected_hover_color="#FFFFFF", unselected_color="#E7EDE9",
             unselected_hover_color="#DCE6DF", text_color="#20352D")
         self.navigation.pack(side="left")
+        self.reading_label = ctk.CTkLabel(navigation, text='文稿工作区', font=(FONT, 15, 'bold'), text_color=INK)
         self.layout_hint = ctk.CTkLabel(
-            navigation, text="", font=("Microsoft YaHei UI", 11),
+            navigation, text="", font=(FONT, 13),
             text_color="#657369", anchor="e")
         self.layout_hint.pack(side="right", padx=4)
-        self.focus_button = ctk.CTkButton(navigation, text='专注阅读', width=86, height=32,
+        self.focus_button = ctk.CTkButton(navigation, text='专注阅读', width=96, height=36,
                                          fg_color='#E7EDE9', hover_color='#DCE6DF', text_color='#20352D',
                                          command=self.toggle_focus)
         self.focus_button.pack(side='right', padx=8)
@@ -118,18 +120,26 @@ class WorkspaceView(ctk.CTkFrame):
         if not self._panes:
             return
         can_split = self._workspace_width() >= self._breakpoint and len(self._panes) > 1
+        if can_split:
+            self.focus_button.pack(side='right', padx=8)
+        else:
+            self.focus_button.pack_forget()
         self._wide = can_split and not self._focused
         self.focus_button.configure(state='normal' if can_split else 'disabled',
                                     text='并排阅读' if self._focused else '专注阅读')
         for pane in self._panes.values():
             pane.grid_remove()
         if self._wide:
-            self.content.grid_columnconfigure(0, weight=5, uniform="reading")
-            self.content.grid_columnconfigure(1, weight=3, uniform="reading")
+            self.navigation.pack_forget()
+            self.reading_label.pack(side='left')
+            self.content.grid_columnconfigure(0, weight=6, uniform="reading")
+            self.content.grid_columnconfigure(1, weight=5, uniform="reading")
             for index, pane in enumerate(self._panes.values()):
                 pane.grid(row=0, column=index, sticky="nsew", padx=(0, 12) if index == 0 else 0)
             self.layout_hint.configure(text="正文与摘要并排")
         else:
+            self.reading_label.pack_forget()
+            self.navigation.pack(side='left')
             self.content.grid_columnconfigure(0, weight=1, uniform="")
             self.content.grid_columnconfigure(1, weight=0, uniform="", minsize=0)
             self._panes[self._current].grid(row=0, column=0, sticky="nsew", padx=0)

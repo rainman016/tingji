@@ -50,6 +50,56 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual(self.window.summary_style.get(), '会议纪要')
         self.assertEqual(self.window.summary_button.cget('text'), '继续摘要')
 
+    def test_summary_reading_editing_and_save_preserve_original_markup(self):
+        original = self.window.doc['summary']
+        self.assertNotIn('## ', self.window.summary_reader.text.get('1.0', 'end'))
+        self.assertEqual(self.window.summary_editor.get('1.0', 'end-1c'), original)
+        self.assertEqual(self.window.summary_reader.text.cget('state'), 'disabled')
+        self.window.toggle_summary_edit(); self.window.update()
+        self.assertTrue(self.window.summary_editor.winfo_ismapped())
+        self.assertFalse(self.window.summary_reader.winfo_ismapped())
+        self.window.summary_editor.insert('end', '\n\n## 补充说明\n需要核对原音。')
+        self.window.toggle_summary_edit(); self.window.update()
+        self.assertFalse(self.window._summary_editing)
+        saved = json.loads((Path(self.temp.name) / (self.window.doc['id'] + '.json')).read_text(encoding='utf-8'))
+        self.assertIn('## 补充说明', saved['summary'])
+        self.assertNotIn('## ', self.window.summary_reader.text.get('1.0', 'end'))
+        self.assertIn('补充说明', self.window.summary_reader.text.get('1.0', 'end'))
+        self.assertEqual(self.window.doc['summary_review']['status'], 'edited')
+
+    def test_summary_failed_save_keeps_editor_and_document_switch_returns_to_reading(self):
+        self.window.toggle_summary_edit()
+        self.window.summary_editor.insert('end', '\n不能丢失的修改')
+        with patch.object(self.window, 'flush_edits', return_value=False):
+            self.window.toggle_summary_edit()
+        self.assertTrue(self.window._summary_editing)
+        self.assertIn('不能丢失的修改', self.window.doc['summary'])
+        other = copy.deepcopy(self.window.doc)
+        other['id'] = new_document('other.wav')['id']
+        self.window.load_document(other)
+        self.assertFalse(self.window._summary_editing)
+        self.assertEqual(self.window.summary_edit_button.cget('text'), '编辑摘要')
+
+    def test_reading_citation_navigates_and_export_menu_keeps_all_formats(self):
+        reader = self.window.summary_reader
+        match = reader.text.search('[00:00:19]', '1.0', stopindex='end')
+        self.assertTrue(match)
+        reader._follow_at(match)
+        self.assertEqual(self.window.selected, 2)
+        self.assertEqual(self.window.tabs.get(), '文字稿')
+        with patch.object(self.window, 'export') as export:
+            for index in range(4): self.window.export_menu.invoke(index)
+        self.assertEqual([call.args[0] for call in export.call_args_list], ['txt', 'srt', 'md', 'json'])
+
+    def test_starting_task_closes_summary_edit_mode_and_keeps_reading_available(self):
+        self.window.toggle_summary_edit()
+        self.window.set_busy(True)
+        self.assertFalse(self.window._summary_editing)
+        self.assertEqual(self.window.summary_edit_button.cget('state'), 'disabled')
+        self.assertEqual(self.window.summary_reader.text.cget('state'), 'disabled')
+        self.assertTrue(self.window.summary_reader.text.get('1.0', 'end').strip())
+        self.window.set_busy(False)
+
     def test_search_selects_segment_and_correction_keeps_search_current(self):
         self.window.search_query.set("视频")
         current, total = self.window.apply_search()
@@ -279,7 +329,8 @@ class WorkspaceTests(unittest.TestCase):
         self.assertFalse(self.window.tabs.wide_mode)
         self.window.tabs.set("摘要与要点")
         self.window.update()
-        self.assertTrue(self.window.summary_editor.winfo_ismapped())
+        self.assertTrue(self.window.summary_reader.winfo_ismapped())
+        self.assertFalse(self.window.summary_editor.winfo_ismapped())
         for widget in (self.window.play_button, self.window.search_entry, *self.window.export_buttons):
             self.assertLessEqual(widget.winfo_rootx() + widget.winfo_width(), self.window.winfo_rootx() + self.window.winfo_width())
 
