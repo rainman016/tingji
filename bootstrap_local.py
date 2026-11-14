@@ -140,7 +140,7 @@ def model_info(session, repo):
     return response.json()
 
 
-def install_models(asr_only=False, plan=False):
+def install_models(asr_only=True, plan=False):
     MODELS.mkdir(exist_ok=True)
     session = requests.Session()
     # Public downloads require no tokens and do not consult netrc or credential files.
@@ -183,7 +183,7 @@ def install_models(asr_only=False, plan=False):
     session.close()
 
 
-def install_dependencies(asr_only=False):
+def install_dependencies(asr_only=True):
     from prepare_runtime import main
     main(asr_only=asr_only)
 
@@ -192,9 +192,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--models-only", action="store_true")
     parser.add_argument("--asr-only", action="store_true")
+    parser.add_argument("--with-legacy-summary", action="store_true", help="显式安装旧版摘要组件；逐字稿工作台不需要")
     parser.add_argument("--plan", action="store_true")
     args = parser.parse_args()
     if not args.models_only and not args.plan:
-        install_dependencies(args.asr_only)
-    install_models(args.asr_only, args.plan)
+        install_dependencies(asr_only=args.asr_only or not args.with_legacy_summary)
+    install_models(asr_only=args.asr_only or not args.with_legacy_summary, plan=args.plan)
     print("本地模型准备完成。" if not args.plan else "仅查看完毕，未下载模型。", flush=True)

@@ -92,7 +92,7 @@ def transcript_text(document):
                      for s in document["segments"])
 
 
-def export_text(document, kind):
+def export_text(document, kind, *, include_summary=False):
     if kind == "srt":
         entries = []
         for i, s in enumerate(document["segments"], 1):
@@ -103,10 +103,14 @@ def export_text(document, kind):
     if kind == "txt":
         return document["title"] + "\n\n" + transcript_text(document) + "\n"
     if kind == "md":
+        if not include_summary:
+            return f"# {document['title']}\n\n## 逐字稿\n\n{transcript_text(document)}\n"
         warning = "\n> 原文已修改，摘要尚未更新。\n" if document.get("summary_stale") else ""
         return f"# {document['title']}\n{warning}\n## 摘要\n\n{document['summary'] or '尚未生成摘要。'}\n\n## 文字稿\n\n{transcript_text(document)}\n"
     if kind == "json":
-        return json.dumps(document, ensure_ascii=False, indent=2)
+        exported = document if include_summary else {key:value for key,value in document.items()
+            if key not in ('summary','previous_summary') and not key.startswith('summary_')}
+        return json.dumps(exported, ensure_ascii=False, indent=2)
     raise ValueError("Unknown export format")
 
 

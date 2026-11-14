@@ -88,7 +88,8 @@ class CoreTests(unittest.TestCase):
     def test_atomic_save_and_stale_summary(self):
         doc = example()
         doc["summary_stale"] = True
-        self.assertIn("原文已修改", export_text(doc, "md"))
+        self.assertIn("原文已修改", export_text(doc, "md", include_summary=True))
+        self.assertNotIn("原文已修改", export_text(doc, "md"))
         with tempfile.TemporaryDirectory() as folder:
             path = save_document(doc, folder)
             self.assertEqual(json.loads(path.read_text(encoding="utf-8"))["id"], doc["id"])

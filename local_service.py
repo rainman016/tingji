@@ -200,7 +200,7 @@ class LocalService:
 
 
 def run_local_pipeline(document, directory, cancel, report, *, summary_only=False,
-                       auto_summary=True, style="通用摘要", speaker_count=0, device="auto", language="zh",
+                       auto_summary=False, style="通用摘要", speaker_count=0, device="auto", language="zh",
                        service_factory=LocalService, extractor=None, on_document=None, resume=False,
                        expected_document=None):
     store = checkpoint_for(directory, document["id"])
@@ -289,13 +289,13 @@ def _run_local_pipeline(document, directory, cancel, report, *, summary_only,
             document['summary_style'] = style
             document['summary_review'] = {'status': 'generated'}
             document['summary_job']['complete'] = True
-        persist_stage("已完成" if document["summary"] else "已转写")
+        persist_stage("已完成" if (summary_only or auto_summary) and document["summary"] else "已转写")
     except Exception as exc:
         if isinstance(exc, CheckpointInUse):
             # Another window owns this job; do not overwrite its durable state.
             raise
         status = ("等待确认语言" if isinstance(exc, LanguageConfirmationRequired) else
-                  "已停止" if isinstance(exc, Cancelled) else ("摘要待重试" if document["segments"] else "待重试"))
+                  "已停止" if isinstance(exc, Cancelled) else ("摘要待重试" if document["segments"] and (auto_summary or summary_only) else "待重试"))
         document["error"] = str(exc) if isinstance(exc, AppError) else "本地处理失败，请检查安装状态或尝试较短视频。"
         persist_stage(status)
         raise

@@ -4,26 +4,25 @@ from pathlib import Path
 import tempfile
 import threading
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 import zipfile
 
 from core import AppError, SummaryGPUUnavailable
 from local_service import LocalService
-from workspace_actions import WorkspaceActions
 import summary_backend as backend
 import install_summary_gpu as installer
 
 
 class SummaryGPUBehaviorTests(unittest.TestCase):
-    def test_summary_status_distinguishes_actual_gpu_and_cpu_fallback(self):
-        actions = WorkspaceActions(); actions.summary_state = Mock()
-        actions.doc = {'summary': '摘要', 'status': '已完成', 'summary_inference': {'device': 'gpu', 'seconds': 12}}
-        actions.update_summary_state()
-        self.assertIn('显卡摘要', actions.summary_state.set.call_args.args[0])
-        actions.doc['summary_inference'] = {'device': 'cpu', 'fallback_reason': 'device lost'}
-        actions.update_summary_state()
-        self.assertIn('CPU摘要', actions.summary_state.set.call_args.args[0])
-        self.assertIn('显卡暂不可用', actions.summary_state.set.call_args.args[0])
+    def test_archived_summary_keeps_actual_device_and_fallback_provenance(self):
+        from summary_state import snapshot, restore
+        doc={'summary':'旧版摘要','summary_inference':{'device':'gpu','seconds':12}}
+        archived=snapshot(doc)
+        doc.update(summary='另一版本',summary_inference={'device':'cpu','fallback_reason':'device lost'})
+        restore(doc,archived)
+        self.assertEqual(doc['summary_inference'],{'device':'gpu','seconds':12})
+        self.assertEqual(doc['previous_summary']['metadata']['summary_inference'],
+                         {'device':'cpu','fallback_reason':'device lost'})
 
     def test_cpu_choice_always_wins_even_with_gpu_installed(self):
         self.assertEqual(backend.select_backend({'device': 'cpu'}, {'ready': True}), 'cpu')

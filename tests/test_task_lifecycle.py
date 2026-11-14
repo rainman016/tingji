@@ -51,7 +51,7 @@ class LifecycleTests(unittest.TestCase):
                     return "摘要"
             with patch("local_service.ROOT", Path(folder)):
                 run_local_pipeline(doc, folder, threading.Event(), lambda _: None,
-                                   service_factory=Service, extractor=copy_audio, on_document=snapshot)
+                                   service_factory=Service, extractor=copy_audio, on_document=snapshot, auto_summary=True)
             self.assertEqual(events[2]["duration_ms"], 1000)
             self.assertEqual(events[-1]["status"], "已完成")
             events[3]["segments"][0]["text"] = "仅修改快照"
@@ -67,7 +67,7 @@ class LifecycleTests(unittest.TestCase):
             with self.assertRaisesRegex(AppError, "测试摘要失败"):
                 run_local_pipeline(doc, folder, threading.Event(), lambda _: None,
                                    service_factory=FailingService, extractor=copy_audio,
-                                   on_document=events.append)
+                                   on_document=events.append, auto_summary=True)
             self.assertEqual(events[-1]["status"], "摘要待重试")
             self.assertTrue(events[-1]["segments"])
             self.assertEqual(json.loads((Path(folder) / (doc["id"] + ".json")).read_text(encoding="utf-8")), doc)
@@ -84,7 +84,7 @@ class LifecycleTests(unittest.TestCase):
             doc = new_document(make_source(folder, duration_ms=1000))
             with self.assertRaises(Cancelled):
                 run_local_pipeline(doc, folder, cancel, lambda _: None, service_factory=StubService,
-                                   extractor=extract, on_document=events.append)
+                                   extractor=extract, on_document=events.append, auto_summary=True)
             transcribe.assert_not_called()
             self.assertEqual(events[-1]["status"], "已停止")
             self.assertEqual(events[-1]["task_owner"], process_owner())

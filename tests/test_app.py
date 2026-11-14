@@ -36,9 +36,12 @@ class DesktopTests(unittest.TestCase):
         self.window.update()
         self.window.flush_edits()
         self.assertEqual(self.window.doc["segments"][1]["text"], "校对后的实际内容。")
-        self.assertTrue(self.window.doc["summary_stale"])
-        with patch.object(app.simpledialog, "askstring", return_value="测试姓名"):
-            self.window.rename_speaker()
+        self.assertFalse(self.window.doc["summary_stale"])
+        self.window.open_segment_editor(1)
+        self.window.rename_speaker()
+        self.window.speaker_name_value.set("测试姓名")
+        self.window.save_speaker_name()
+        self.window.finish_segment_edit()
         self.assertIn("测试姓名", export_text(self.window.doc, "srt"))
         self.window.refresh_history()
         self.assertEqual(len(self.window.history_docs), 1)
@@ -53,20 +56,28 @@ class DesktopTests(unittest.TestCase):
 
     def test_minimum_window_keeps_export_actions_inside(self):
         self.window.geometry("960x680")
+        self.assertTrue(self.window.tabs.winfo_ismapped())
+        self.window.load_document(new_document('sample.mp4'))
+        self.window.import_flow.toggle_advanced()
         self.window.update()
-        for button in [*self.window.export_buttons, self.window.language_box,
-                       self.window.count_box, self.window.style_box, self.window.summary_check]:
+        for button in [self.window.start_button, self.window.language_box,
+                       self.window.count_box]:
             right = button.winfo_rootx() + button.winfo_width()
             bottom = button.winfo_rooty() + button.winfo_height()
             self.assertLessEqual(right, self.window.winfo_rootx() + self.window.winfo_width())
             self.assertLessEqual(bottom, self.window.winfo_rooty() + self.window.winfo_height())
+        self.assertTrue(self.window.source_panel.winfo_ismapped())
+        self.window.open_example()
+        self.window.update()
         self.assertGreater(self.window.tabs.winfo_height(), 120)
+        self.assertTrue(self.window.export_button.winfo_ismapped())
 
     def test_missing_local_models_stops_before_inference(self):
         self.window.language.set("中文")
         with patch.object(app, "local_status", return_value={"asr": False, "summary": False}), patch.object(app.messagebox, "showinfo") as message:
             self.assertFalse(self.window.check_ready())
-            message.assert_called_once()
+            self.assertTrue(self.window.notice_text.get())
+            message.assert_not_called()
 
     def test_ready_models_do_not_require_key_or_upload_consent(self):
         self.window.language.set("中文")
@@ -95,7 +106,8 @@ class DesktopTests(unittest.TestCase):
              patch.object(app.messagebox, "showinfo") as message:
             self.assertFalse(self.window.check_ready())
             self.assertIn("英文模型", self.window.notice_text.get())
-            message.assert_called_once()
+            self.assertTrue(self.window.notice_text.get())
+            message.assert_not_called()
 
     def test_new_file_defaults_auto_with_explicit_missing_detector_and_manual_fallback(self):
         self.assertEqual(self.window.language.get(), "自动检测")
@@ -107,14 +119,15 @@ class DesktopTests(unittest.TestCase):
             self.assertFalse(self.window.check_ready())
             self.assertIn("安装语言检测模型", self.window.notice_text.get())
             self.assertIn("手动选择", self.window.notice_text.get())
-            message.assert_called_once()
+            self.assertTrue(self.window.notice_text.get())
+            message.assert_not_called()
             self.window.language.set("英文")
             self.assertTrue(self.window.check_ready())
             self.window.language.set("中文")
             self.assertTrue(self.window.check_ready())
         self.window.language.set("自动检测")
         with patch.object(app, "local_status", return_value={"asr": False, "english": False, "summary": True, "language_detection": False}):
-            self.assertTrue(self.window.check_ready(summary_only=True))
+            self.assertFalse(self.window.check_ready())
 
     def test_history_round_trip_keeps_saved_corrections(self):
         self.window.open_example()
@@ -249,7 +262,7 @@ class DesktopTests(unittest.TestCase):
         latest["segments"][0]["text"] = "另一窗口保存的新原文"
         save_document(latest, self.temp.name)
         with patch.object(app.messagebox, "showerror"), patch.object(app.threading, "Thread") as thread:
-            self.window.launch_job(summary_only=True)
+            self.window.launch_job()
             thread.assert_not_called()
         disk = json.loads((Path(self.temp.name) / (latest["id"] + ".json")).read_text(encoding="utf-8"))
         self.assertEqual(disk, latest)
@@ -264,11 +277,10 @@ class DesktopTests(unittest.TestCase):
         self.assertTrue(self.window.document_locked)
         self.assertEqual(self.window.segment_editor.cget("state"), "disabled")
         self.assertEqual(self.window.start_button.cget("state"), "disabled")
-        self.assertEqual(self.window.summary_button.cget("state"), "disabled")
         self.assertTrue(all(button.cget("state") == "normal" for button in self.window.export_buttons))
         with patch.object(app, "save_document") as persist, patch.object(app.threading, "Thread") as thread:
             self.window.flush_edits()
-            self.window.launch_job(summary_only=True)
+            self.window.launch_job()
             persist.assert_not_called()
             thread.assert_not_called()
 

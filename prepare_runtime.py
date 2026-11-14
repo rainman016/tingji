@@ -18,7 +18,7 @@ RUNTIME_VERSION = f"{TORCH_VERSION}+{CUDA_FLAVOR}"
 RUNTIME_INDEX = f"https://download.pytorch.org/whl/{CUDA_FLAVOR}"
 
 
-def main(asr_only=False):
+def main(asr_only=True):
     if sys.platform != "win32" or sys.version_info[:2] != (3, 12) or platform.machine().lower() not in ("amd64", "x86_64"):
         raise RuntimeError("安装器需要 Windows x64 / Python 3.12，请先创建正确的项目虚拟环境。")
     base_python = Path(sys.base_prefix) / "python.exe"

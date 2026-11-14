@@ -128,6 +128,37 @@ class PhaseThreeUITests(unittest.TestCase):
             launch.assert_called_once_with(resume=True)
         self.assertEqual((store.directory / "units" / "asr-00000.json").read_bytes(), unit_before)
 
+    def test_unconfirmed_language_blocks_resume_until_zh_or_en_is_chosen(self):
+        document, _ = self.make_recoverable(language=None, completed=0, status="等待确认语言")
+        document["language_detection"] = {"language": None, "needs_confirmation": True,
+                                          "reason": "取样不确定", "confidence": .5, "samples": []}
+        save_document(document, self.directory)
+        self.window.load_document(document)
+        self.window.update()
+        self.assertEqual(self.window.language.get(), "自动检测")
+        self.assertEqual(self.window.resume_button.cget("state"), "disabled")
+        with patch.object(self.window, "launch_job") as launch:
+            self.window.resume_transcription()
+            launch.assert_not_called()
+            self.assertIn("选择中文或英文", self.window.status.get())
+            self.window.language.set("中文")
+            self.assertEqual(self.window.resume_button.cget("state"), "normal")
+            self.window.resume_transcription()
+            launch.assert_called_once_with(resume=True)
+
+    def test_stopped_task_panel_keeps_step_and_makes_resume_primary(self):
+        document, _ = self.make_recoverable()
+        self.window.load_document(document)
+        self.window.update()
+        flow = self.window.import_flow
+        self.assertEqual(self.window.import_drawer.title.cget("text"), "已停止 · 可继续")
+        self.assertTrue(flow.paused)
+        resume, restart, back = self.window.resume_button, self.window.start_button, flow.back_button
+        self.assertEqual(restart.cget("text"), "重新转写")
+        self.assertGreater(resume.winfo_rootx(), back.winfo_rootx())
+        self.assertGreater(back.winfo_rootx(), restart.winfo_rootx())
+        self.assertEqual(resume.cget("state"), "normal")
+
     def test_loading_history_restores_saved_speaker_count(self):
         document, _ = self.make_recoverable(speaker_count=4)
         self.window.speaker_count.set("7")

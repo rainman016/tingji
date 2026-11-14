@@ -1,10 +1,10 @@
 """Readable native text styling without changing or hiding editable content."""
 import re
-from ui_theme import FONT, ACCENT, MUTED, SOFT
+from ui_theme import FONT, ACCENT, MUTED, SOFT, native_font
 
 
 def format_summary(editor):
-    editor.tag_configure('summary_heading', font=(FONT, 15, 'bold'),
+    editor.tag_configure('summary_heading', font=native_font(editor, getattr(editor, '_reading_size', 16)+2, 'bold'),
                          foreground=ACCENT, spacing1=14, spacing3=8)
     editor.tag_configure('summary_point', lmargin1=6, lmargin2=18, spacing1=3, spacing3=6)
     editor.tag_configure('summary_quote', foreground=MUTED, background=SOFT,

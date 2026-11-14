@@ -3,7 +3,7 @@ import re
 import tkinter as tk
 import customtkinter as ctk
 
-from ui_theme import FONT, PAPER, INK, MUTED, ACCENT, SOFT, SUMMARY_FONT
+from ui_theme import FONT, PAPER, INK, MUTED, ACCENT, SOFT, SUMMARY_FONT, native_font
 
 
 def blocks(source):
@@ -33,21 +33,21 @@ class SummaryReader(tk.Frame):
         self._signature = None
         self._identity = None
         self.text = tk.Text(self, wrap='word', state='disabled', borderwidth=0,
-            highlightthickness=0, bg=PAPER, fg=INK, font=SUMMARY_FONT,
+            highlightthickness=0, bg=PAPER, fg=INK, font=native_font(self, 16),
             padx=20, pady=12, spacing2=5, spacing3=12, cursor='xterm',
-            selectbackground='#D8E9DD', selectforeground=INK, takefocus=True,
+            selectbackground='#DCE8FF', selectforeground=INK, takefocus=True,
             width=1, height=1)
         self.text.pack(side='left', fill='both', expand=True)
         self.scrollbar = ctk.CTkScrollbar(self, command=self.text.yview, width=12,
-            fg_color=PAPER, button_color='#D2DDD5', button_hover_color='#AFBFB3')
+            fg_color=PAPER, button_color='#D0DAE8', button_hover_color='#A9B9CE')
         self.scrollbar.pack(side='right', fill='y')
         self.text.configure(yscrollcommand=self.scrollbar.set)
-        self.text.tag_configure('heading', font=(FONT, 15, 'bold'), foreground=INK,
+        self.text.tag_configure('heading', font=native_font(self, 18, 'bold'), foreground=INK,
             spacing1=16, spacing3=10)
         self.text.tag_configure('point', lmargin1=0, lmargin2=20, spacing3=14)
         self.text.tag_configure('quote', foreground=MUTED, background=SOFT,
             lmargin1=12, lmargin2=12, rmargin=8, spacing1=8, spacing3=14)
-        self.text.tag_configure('strong', font=(FONT, 13, 'bold'))
+        self.text.tag_configure('strong', font=native_font(self, 16, 'bold'))
         self.text.tag_configure('cjk', wrap='char')
         self.text.tag_configure('first', spacing1=0)
         self.text.tag_configure('citation', foreground=ACCENT, underline=True)

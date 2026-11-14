@@ -8,16 +8,15 @@
 
 GitHub Actions 当前尚未启用，已提供 [Windows 回归模板](docs/ci/windows-regression.yml)。维护者可在 GitHub 网页创建 `.github/workflows/tests.yml` 并复制模板内容，或使用具备工作流写入权限的 Git 客户端提交该文件。启用后会在推送、拉取请求和手动触发时运行普通回归；真实模型测试仍需显式运行。
 
-`tests/render_workspace.py` 创建独立合成文稿窗口并捕获该窗口，检查宽窄布局。真实模型测试为显式入口：`tests/validate_summary_recovery.py stop <文稿.json> <输出目录>`，结束后再运行相同参数的 `resume`。这会占用本机 GPU，并将测试副本写入输出目录；请不要将私人文稿提交到仓库。
+`tests/render_studio.py` 创建隔离演示文稿，只捕获自己的原生窗口，检查宽窄布局、导入和段内校对。真实模型验收需显式运行并单独说明资源开销；不要将私人文稿提交到仓库。旧摘要验收脚本保留作历史工具，正式程序不再调用摘要。
 
 ## 代码入口
 
-- `app.py` / `desktop_ui.py`：桌面任务与视觉层；`workspace_actions.py` / `workspace_view.py`：阅读、校对和响应式布局。
-- `summary_reader.py`：只读摘要排版、有效引用和键盘导航；原始编辑与导出内容保持分离。
+- `app.py` / `desktop_ui.py`：桌面任务与视觉层；`workspace_actions.py` / `studio_widgets.py`：阅读、段内校对、资料库和侧面板。
+- `transcript_reader.py` / `studio_icons.py`：长文稿渲染、查找和本地绘制图标。
 - `local_service.py`：本地任务、持久化、进程调度；`local_worker.py`：摘要和识别 worker。
 - `checkpoint_store.py` / `transcription_recovery.py`：识别恢复与进程锁。
-- `summary_state.py` / `summary_resume.py`：摘要版本快照和逐步恢复；`summary_format.py`：结构校验与有界重试；`summary_validation.py`：引用核对。
-- `summary_backend.py`：CPU / Vulkan 引擎隔离与实际卸载验证。
+- `summary_*`：旧版摘要兼容工具及其测试，正式 UI 没有入口；不删除历史数据。
 
 请为数据保存、取消、恢复和跨进程逻辑补充必要测试。修改视觉层后检查 1240×820、960×680、键盘操作与错误状态。提交中不要包含模型、录音、文稿、凭据、日志或本地运行目录。
 

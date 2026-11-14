@@ -9,76 +9,94 @@ from tkinter import filedialog, messagebox, simpledialog
 
 from audio_preview import AudioPreview
 from core import timestamp
+from ui_theme import ACCENT, native_font
 
 AUDIO_CONTEXT_MS = 3000
 AUDIO_IDLE_HINT = "点击时间戳或「回听」核对原音，含前后最多 3 秒上下文"
 
 
 class WorkspaceActions:
+    def toggle_reading_size(self):
+        self._large_reading = not getattr(self, '_large_reading', False)
+        self.apply_reading_size()
+
+    def apply_reading_size(self):
+        from tkinter import font as tkfont
+        size=16 if getattr(self,'_large_reading',False) else 14
+        for widget in (self.reader.text,self.segment_editor):
+            font=native_font(widget,size)
+            spacing=max(0,round(abs(font[1])*1.65)-tkfont.Font(root=widget,font=font).metrics('linespace'))
+            widget.configure(font=font,spacing2=spacing)
+            widget._reading_size=size
+        self.reader.text.tag_configure('metadata',font=native_font(self,12))
+        self.reader.update_layout()
+        self.reading_size_button.configure(text='标准字号' if size==16 else '放大阅读')
+
     def init_workspace_state(self):
         self.search_query = tk.StringVar()
         self.search_result = tk.StringVar(value="搜索全文")
         self.history_query = tk.StringVar()
         self.audio_hint = tk.StringVar(value=AUDIO_IDLE_HINT)
-        self.summary_state = tk.StringVar(value="尚未生成摘要")
         self.task_status = tk.StringVar()
         self.audio = AudioPreview()
         self._audio_document_id = None
         self._audio_segment_index = None
         self._editor_open = False
-        self._settings_open = True
-        self._summary_editing = False
+        self._settings_open = False
+        self._edit_dirty = False
+        self._discarded_edit = None
+        self._full_title = ''
+        self._import_requested = False
         self._speaker_keys = []
 
     def bind_workspace(self):
         self.search_query.trace_add("write", self.schedule_search)
         self.history_query.trace_add("write", lambda *_: self.filter_history())
-        self.bind("<Control-f>", self.focus_search)
+        # Caps Lock changes the keysym, so bind both cases.
+        for key in ("<Control-f>", "<Control-F>"):
+            self.bind(key, self.focus_search)
         self.bind("<F3>", lambda _: self.search_next())
         self.bind("<Shift-F3>", lambda _: self.search_previous())
         self.bind("<Control-Return>", lambda _: self.toggle_audio())
-        self.bind("<Control-e>", self.focus_editor)
+        for key in ("<Control-e>", "<Control-E>"):
+            self.bind(key, self.focus_editor)
+        for key in ("<Control-z>", "<Control-Z>"):
+            self.bind(key, self.restore_discarded_edit)
         self.search_entry.bind("<Return>", lambda _: self.search_next())
         self.search_entry.bind("<Shift-Return>", lambda _: self.search_previous())
         self.search_entry.bind("<Escape>", lambda _: self.search_query.set(""))
-        self.summary_editor.tag_configure("citation", foreground="#24674E", underline=True)
-        self.summary_editor.tag_bind("citation", "<Control-Button-1>", self.follow_summary_citation)
         self.audio_timer = self.after(200, self.poll_audio)
         self.update_editor_visibility()
 
     def toggle_editor(self):
-        if self.document_locked or not self.doc or self.selected is None:
-            return
-        self._editor_open = not self._editor_open
-        self.update_editor_visibility()
-        if self._editor_open:
-            self.segment_editor.focus_set()
+        if self._editor_open:self.finish_segment_edit()
+        else:self.open_segment_editor(self.selected)
 
-    def focus_editor(self, _event=None):
+    def focus_editor(self,_event=None):
         if not self.document_locked and self.selected is not None:
-            self._editor_open = True
-            self.tabs.set("文字稿")
-            self.update_editor_visibility()
-            self.segment_editor.focus_set()
-        return "break"
+            self.import_drawer.hide()
+            self.preferences_drawer.hide()
+            if self._editor_open and self._edit_index == self.selected:
+                # Already correcting this paragraph: keep the draft uncommitted.
+                self.segment_editor.focus_set()
+            else:
+                self.open_segment_editor(self.selected)
+        return 'break'
 
     def update_editor_visibility(self):
-        if self._editor_open:
-            self.editor_body.pack(fill="x")
+        if self._editor_open and self.selected is not None:
+            self.reader.show_editor(self.editor_body,self.selected)
         else:
-            self.editor_body.pack_forget()
-        self.editor_toggle_button.configure(text="收起校对" if self._editor_open else "校对本段")
+            self.reader.hide_editor()
+            self.speaker_name_row.pack_forget()
 
     def toggle_settings(self):
-        self._settings_open = not self._settings_open
-        self.update_settings_visibility()
+        self._settings_open=not self.import_drawer.shown
+        self._import_requested=self._settings_open
+        self.import_flow.sync()
 
     def update_settings_visibility(self):
-        if self._settings_open:
-            self.source_panel.grid()
-        else:
-            self.source_panel.grid_remove()
-        self.settings_button.configure(text="收起设置" if self._settings_open else "转写设置")
+        self.import_flow.sync()
 
     def schedule_search(self, *_):
         if getattr(self, "search_timer", None):
@@ -89,7 +107,9 @@ class WorkspaceActions:
         if getattr(self, "search_timer", None):
             self.after_cancel(self.search_timer)
             self.search_timer = None
-        return self.reader.search(self.search_query.get())
+        # Typing a query while correcting only highlights; it never leaves
+        # (and thereby commits) the paragraph being edited.
+        return self.reader.search(self.search_query.get(), activate=not self._editor_open)
 
     def search_results_changed(self, current, total):
         self.search_result.set(f"{current} / {total} 处" if total else ("无匹配" if self.search_query.get() else "搜索全文"))
@@ -98,6 +118,11 @@ class WorkspaceActions:
                 getattr(self, name).configure(state="normal" if total else "disabled")
 
     def focus_search(self, _event=None):
+        if not self.doc or not self.doc.get('segments'):
+            return 'break'
+        self._settings_open = False
+        self.update_settings_visibility()
+        self.preferences_drawer.hide()
         self.tabs.set("文字稿")
         self.search_entry.focus_set()
         self.search_entry.select_range(0, "end")
@@ -149,13 +174,15 @@ class WorkspaceActions:
         if value not in values:
             return
         key = self._speaker_keys[values.index(value)]
+        if self._editor_open:
+            self._draft_speaker=key;self._edit_dirty=True
+            return
         segment = self.doc["segments"][self.selected]
         if segment["speaker"] == key:
             return
         segment["speaker"] = key
         self.reader.update_segment(self.selected, segment, self.doc["speakers"])
         self.doc["summary_stale"] = bool(self.doc["summary"])
-        self.update_summary_state()
         self.select_segment(self.selected)
         self.schedule_save()
 
@@ -163,7 +190,8 @@ class WorkspaceActions:
         if self.document_locked or self.selected is None:
             return
         source = self.doc["segments"][self.selected]["speaker"]
-        menu = tk.Menu(self, tearoff=False)
+        from ui_controls import RoundedMenu
+        menu = RoundedMenu(self, anchor=self.merge_button, min_width=190)
         for key, name in self.doc["speakers"].items():
             if key != source:
                 menu.add_command(label="合并到 " + name, command=lambda target=key: self.merge_speaker(target))
@@ -177,6 +205,7 @@ class WorkspaceActions:
     def merge_speaker(self, target):
         if self.document_locked or self.selected is None or target not in self.doc["speakers"]:
             return
+        if not self.commit_segment_edit():return
         source = self.doc["segments"][self.selected]["speaker"]
         if source == target:
             return
@@ -191,20 +220,15 @@ class WorkspaceActions:
         self.reader.set_document(self.doc["segments"], names, selected=self.selected)
         self.update_metadata()
         self.update_speaker_choices()
-        self.update_summary_state()
         self.set_busy(self.busy)
         self.select_segment(self.selected)
         self.flush_edits()
 
     def rename_document(self):
-        if not self.doc or self.document_locked:
-            return
-        title = simpledialog.askstring("文稿名称", "为这份文稿取一个容易找到的名称：", initialvalue=self.doc["title"], parent=self)
-        if title and title.strip():
-            self.doc["title"] = " ".join(title.split())
-            self.title_text.set(self.doc["title"])
-            if self.flush_edits():
-                self.refresh_history()
+        if not self.doc or self.document_locked:return
+        self.rename_value.set(self.doc['title'])
+        self.title_line.grid_remove();self.rename_area.grid(row=0,column=0,sticky='ew')
+        self.rename_entry.focus_set();self.rename_entry.select_range(0,'end')
 
     def play_segment(self, index):
         if not self.doc or not 0 <= index < len(self.doc["segments"]):
@@ -248,15 +272,18 @@ class WorkspaceActions:
         self._audio_segment_index = None
         self.audio_hint.set(AUDIO_IDLE_HINT)
         if hasattr(self, "play_button"):
-            self.play_button.configure(text="回听")
+            from studio_icons import glyph
+            self.play_button.configure(text="回听",image=glyph('play',21))
 
     def poll_audio(self):
         state = self.audio.poll()
         current = self.doc and self.doc["id"] == self._audio_document_id
         if current:
             labels = {"preparing": "准备中…", "playing": "暂停", "paused": "继续"}
-            self.play_button.configure(text=labels.get(state["state"], "回听"))
+            from studio_icons import glyph
+            self.play_button.configure(text=labels.get(state["state"], "回听"), image=glyph("pause" if state["state"]=="playing" else "play",21))
             if state["state"] in ("playing", "paused", "finished"):
+                self.update_audio_position(state["position_ms"])
                 label = {"playing": "正在回听", "paused": "已暂停", "finished": "本段回听结束"}[state["state"]]
                 paragraph = f"第 {self._audio_segment_index + 1} 段 · " if self._audio_segment_index is not None else ""
                 self.audio_hint.set(f"{label} · {paragraph}{timestamp(state['position_ms'])}")
@@ -279,124 +306,227 @@ class WorkspaceActions:
             if self.flush_edits():
                 self.audio_hint.set("原音视频已重新关联，点击回听核对。")
 
-    def update_summary_state(self):
-        if hasattr(self, 'summary_empty'):
-            if self._summary_editing or (self.doc and self.doc.get('summary')):
-                self.summary_empty.place_forget()
-            else:
-                self.summary_empty.configure(text=('正在整理摘要…\n你可以先阅读和导出文字稿。'
-                    if self.doc and self.doc.get('status') == '生成摘要'
-                    else '提取关键要点，保留原文出处。\n点击下方「生成摘要」开始。'
-                    if self.doc and self.doc.get('segments') else '完成转写后，在这里整理摘要。'))
-                self.summary_empty.place(relx=.5, rely=.35, anchor='center')
-        if self.doc and self.doc.get('status') == '生成摘要':
-            text = '正在生成新摘要' + (' · 下方保留上一版' if self.doc.get('summary') else '')
-        elif not self.doc or not self.doc.get("summary"):
-            text = "尚未生成摘要"
-        elif self.doc.get("summary_stale"):
-            text = "原文已修改 · 摘要待更新"
-        elif "时间待核对" in self.doc["summary"]:
-            text = f"摘要已生成 · {self.doc['summary'].count('时间待核对')} 处时间需核对"
-        else:
-            text = ('已手动编辑 · 要点需核对原文' if self.doc.get('summary_review', {}).get('status') == 'edited'
-                    else '要点需核对原文 · 点击时间定位')
-        if self.doc and self.doc.get('status') != '生成摘要' and self.doc.get('summary'):
-            inference = self.doc.get('summary_inference', {})
-            device = inference.get('device')
-            if device in ('gpu', 'cpu'):
-                label = '显卡摘要' if device == 'gpu' else 'CPU摘要'
-                if device == 'cpu' and inference.get('fallback_reason'):
-                    label += '（显卡暂不可用）'
-                seconds = inference.get('seconds')
-                if isinstance(seconds, (int, float)) and math.isfinite(seconds) and 0 <= seconds < 86400:
-                    label += ' · ' + timestamp(round(seconds * 1000))
-                text = label + ' · ' + text
-        missing = (self.doc or {}).get('summary_validation', {}).get('points_need_sources', 0)
-        if missing:
-            text += f' · {missing} 条要点缺少出处'
-        self.summary_state.set(text)
 
-    def toggle_summary_edit(self):
-        if self.document_locked or not self.doc or not self.doc.get('segments'):
-            return
-        if self._summary_editing:
-            self.summary_changed()
-            if not self.flush_edits():
-                return
-        self._summary_editing = not self._summary_editing
-        self.update_summary_mode()
-        if self._summary_editing:
-            self.summary_editor.focus_set()
 
-    def update_summary_mode(self):
-        if self._summary_editing:
-            self.summary_reader.pack_forget()
-            self.summary_editor.pack(fill='both', expand=True, padx=8)
-            self.summary_mode_label.pack(anchor='w', pady=(6, 4))
-        else:
-            self.summary_editor.pack_forget()
-            self.summary_reader.pack(fill='both', expand=True)
-            self.summary_mode_label.pack_forget()
-        self.summary_edit_button.configure(text='完成编辑' if self._summary_editing else '编辑摘要')
-        self.summary_mode_hint.set('修改自动保存 · 完成后返回阅读' if self._summary_editing else '点击时间戳，定位原文')
-        self.update_summary_state()
 
-    def refresh_summary_links(self):
-        from summary_presentation import format_summary
-        format_summary(self.summary_editor)
-        self.summary_editor.tag_remove("citation", "1.0", "end")
-        allowed = {timestamp(row['start_ms']) for row in (self.doc or {}).get('segments', [])}
-        issues = (self.doc or {}).get('summary_validation', {}).get('issues', [])
-        for issue in issues:
-            if issue.get('kind') in ('unverified_quote', 'unverified_time'):
-                allowed.discard(issue.get('time'))
-            elif (self.doc.get('summary_review', {}).get('status') == 'edited'
-                  and issue.get('kind') == 'corrected_quote_anchor' and issue.get('old_time') != issue.get('time')):
-                # Automatically corrected text uses the new time; edited text retains its original.
-                allowed.discard(issue.get('old_time'))
-        position = "1.0"
-        pattern = r"\[[0-9]{2}:[0-9]{2}:[0-9]{2}\]"
-        while True:
-            match = self.summary_editor.search(pattern, position, stopindex="end", regexp=True)
-            if not match:
-                break
-            end = f"{match}+10c"
-            if self.summary_editor.get(match, end).strip('[]') in allowed:
-                self.summary_editor.tag_add("citation", match, end)
-            position = end
-        self.summary_reader.render((self.doc or {}).get('summary', ''), allowed,
-                                   identity=(self.doc or {}).get('id'))
 
-    def follow_summary_citation(self, event):
-        position = self.summary_editor.index(f"@{event.x},{event.y}")
-        ranges = self.summary_editor.tag_ranges("citation")
-        for start, end in zip(ranges[::2], ranges[1::2]):
-            if self.summary_editor.compare(start, "<=", position) and self.summary_editor.compare(position, "<", end):
-                hours, minutes, seconds = map(int, self.summary_editor.get(start, end).strip("[]").split(":"))
-                self.jump_to_time((hours * 3600 + minutes * 60 + seconds) * 1000)
-                return "break"
 
     def jump_to_time(self, position_ms):
         if not self.doc or not self.doc["segments"]:
             return
+        self._settings_open = False
+        self.update_settings_visibility()
         candidates = [i for i, segment in enumerate(self.doc["segments"]) if segment["start_ms"] <= position_ms]
         index = candidates[-1] if candidates else 0
         self.tabs.set("文字稿")
         self.reader.select(index)
 
-    def restore_summary(self):
-        if self.document_locked or not self.doc or not self.doc.get("previous_summary"):
-            return
-        from summary_state import restore
-        restore(self.doc, self.doc["previous_summary"])
-        if self.doc.get('summary_style') in ('通用摘要', '会议纪要'):
-            self.summary_style.set(self.doc['summary_style'])
-        self.loading = True
-        self.summary_editor.delete("1.0", "end")
-        self.summary_editor.insert("1.0", self.doc["summary"])
-        self.summary_editor.edit_modified(False)
-        self.summary_editor.edit_reset()
-        self.loading = False
-        self.refresh_summary_links()
-        self.update_summary_state()
-        self.flush_edits()
+    def open_segment_editor(self,index=None):
+        if self.document_locked or not self.doc or index is None:return
+        if self._editor_open and not self.commit_segment_edit():return
+        self.reader.select(index)
+        self._editor_open=True
+        self._edit_dirty=False
+        self._edit_index=index
+        self._draft_speaker=self.doc['segments'][index]['speaker']
+        self._discarded_edit=None
+        self.fit_editor_height()
+        self.update_editor_visibility()
+        self.segment_editor.focus_set()
+        self.after_idle(self.fit_editor_height)
+
+    def fit_editor_height(self):
+        """Size the inline editor to its text (3-8 lines) instead of a fixed block."""
+        if not self._editor_open:return
+        from tkinter import font as tkfont
+        import customtkinter as ctk
+        editor=self.segment_editor
+        scale=ctk.ScalingTracker.get_widget_scaling(self)
+        face=tkfont.Font(root=editor,font=editor.cget('font'))
+        line=face.metrics('linespace')+int(float(editor.cget('spacing2') or 0))
+        lines=0
+        if editor.winfo_ismapped() and editor.winfo_width()>40:
+            counted=editor.count('1.0','end','displaylines')
+            lines=counted[0] if isinstance(counted,tuple) else int(counted or 0)
+        if not lines:
+            width=max(120,self.reader.text.winfo_width()-round(190*scale))
+            lines=sum(max(1,math.ceil(face.measure(row)/width)) for row in editor.get('1.0','end-1c').split('\n'))
+        rows=max(3,min(8,lines))
+        extra=44 if self.speaker_name_row.winfo_manager() else 0
+        desired=round(56+extra+(rows*line+18)/scale+54)
+        if getattr(self.editor_body,'_desired_height',None)!=desired:
+            self.editor_body._desired_height=desired
+            self.reader.update_layout()
+
+    def commit_segment_edit(self):
+        if not self._editor_open:return True
+        index=self._edit_index
+        value=self.segment_editor.get('1.0','end-1c').strip()
+        if not value:
+            self.status.set('这段文字为空，请输入内容或取消校对。')
+            self.segment_editor.focus_set()
+            return False
+        self._editor_open=False
+        self.reader.hide_editor()
+        row=self.doc['segments'][index]
+        changed=value!=row['text'] or self._draft_speaker!=row['speaker']
+        row['text']=value;row['speaker']=self._draft_speaker
+        if changed:
+            self.doc['summary_stale']=bool(self.doc.get('summary'))
+            self.reader.update_segment(index,row,self.doc['speakers'])
+            self.save_status.set('保存中…')
+        self._edit_dirty=False
+        self.speaker_name_row.pack_forget()
+        return True
+
+    def finish_segment_edit(self):
+        if self.commit_segment_edit():
+            self.flush_edits()
+            self.reader.text.focus_set()
+        return 'break'
+
+    def cancel_segment_edit(self):
+        discarded=None
+        if self._editor_open and self.doc and self._edit_index is not None and self._edit_index<len(self.doc['segments']):
+            row=self.doc['segments'][self._edit_index]
+            text=self.segment_editor.get('1.0','end-1c')
+            if text.strip() and (text.strip()!=row['text'] or self._draft_speaker!=row['speaker']):
+                discarded={'document':self.doc['id'],'index':self._edit_index,'text':text,'speaker':self._draft_speaker}
+        self._editor_open=False;self._edit_dirty=False
+        self.reader.hide_editor();self.speaker_name_row.pack_forget()
+        self.select_segment(self.selected)
+        self._discarded_edit=discarded
+        self.save_status.set('已放弃本段修改 · Ctrl Z 恢复' if discarded else '已取消本次校对')
+        if discarded:self.status.set('已放弃本段修改。按 Ctrl Z 可恢复刚才的内容继续校对。')
+        self.reader.text.focus_set()
+        return 'break'
+
+    def restore_discarded_edit(self,_event=None):
+        """Reopen the editor with the draft dropped by the last Esc/取消."""
+        draft=self._discarded_edit
+        if self._editor_open or not draft or self.document_locked or not self.doc:return
+        if draft['document']!=self.doc['id'] or draft['index']>=len(self.doc['segments']):
+            self._discarded_edit=None;return
+        self.open_segment_editor(draft['index'])
+        if not self._editor_open:return 'break'
+        self.segment_editor.delete('1.0','end');self.segment_editor.insert('1.0',draft['text'])
+        if draft['speaker'] in self.doc['speakers']:
+            self._draft_speaker=draft['speaker']
+            values=self.speaker_box.cget('values')
+            if draft['speaker'] in self._speaker_keys:self.speaker_box.set(values[self._speaker_keys.index(draft['speaker'])])
+        self._edit_dirty=True
+        self.save_status.set('正在校对 · 保存后生效')
+        self.fit_editor_height()
+        return 'break'
+
+    def show_preferences(self):
+        self.check_models()
+        self.preferences_drawer.show()
+
+    def close_import_flow(self):
+        self.import_drawer.hide()
+        self._settings_open=False;self._import_requested=False
+        previous=getattr(self,'_return_document',None)
+        self._return_document=None
+        if previous and not self.busy and (not self.doc or not self.doc.get('task_id')):
+            self.load_document(previous)
+        self.import_flow.sync()
+
+    def save_document_name(self):
+        if not self.doc or self.document_locked:return
+        value=' '.join(self.rename_value.get().split())[:120]
+        if not value:
+            self.status.set('请输入文稿名称。');return
+        self.doc['title']=value;self.title_text.set(value);self.import_name.set(value)
+        self.cancel_document_name();self.import_flow.sync()
+        if self.flush_edits():self.refresh_history()
+
+    def cancel_document_name(self):
+        self.rename_area.grid_remove();self.title_line.grid()
+
+    def update_audio_position(self,position=None):
+        from studio_icons import glyph
+        if not self.doc or self.selected is None:return
+        row=self.doc['segments'][self.selected]
+        position=row['start_ms'] if position is None else position
+        duration=self.doc.get('duration_ms',0)
+        def clock(value):
+            text=timestamp(value)
+            return text[3:] if text.startswith('00:') else text
+        self.audio_position.set(f'{clock(position)} / {clock(duration)}')
+        count=len(self.doc['segments']);start=max(0,min(self.selected-1,count-4))
+        for i,button in enumerate(self.segment_cues):
+            index=start+i
+            if index<count:
+                button.grid()
+                button.configure(text=clock(self.doc['segments'][index]['start_ms']),
+                    fg_color='#355862' if index==self.selected else 'transparent',
+                    text_color='#D5F3F5' if index==self.selected else '#A7BACC',
+                    command=lambda n=index:self.reader.select(n))
+            else:button.grid_remove()
+        self.previous_segment_button.configure(state='normal' if self.selected>0 else 'disabled')
+        self.next_segment_button.configure(state='normal' if self.selected<count-1 else 'disabled')
+
+    def rename_speaker(self):
+        if self.document_locked or self.selected is None:return
+        speaker=getattr(self,'_draft_speaker',None) or self.doc['segments'][self.selected]['speaker']
+        self.speaker_name_value.set(self.doc['speakers'][speaker])
+        self.speaker_name_row.pack(fill='x',padx=12,pady=(2,6),before=self.segment_editor)
+        self.fit_editor_height()
+        self.speaker_name_entry.focus_set();self.speaker_name_entry.select_range(0,'end')
+
+    def save_speaker_name(self):
+        if self.document_locked or self.selected is None:return
+        name=' '.join(self.speaker_name_value.get().split())[:60]
+        if not name:return
+        speaker=getattr(self,'_draft_speaker',None) or self.doc['segments'][self.selected]['speaker']
+        index=self.selected
+        # Renaming a speaker is saved on its own. The paragraph draft stays
+        # uncommitted, so Esc can still discard it afterwards.
+        editing=self._editor_open
+        draft=self.segment_editor.get('1.0','end-1c') if editing else None
+        dirty,draft_speaker=self._edit_dirty,getattr(self,'_draft_speaker',None)
+        self._editor_open=False
+        self.speaker_name_row.pack_forget()
+        self.doc['speakers'][speaker]=name
+        self.doc['summary_stale']=bool(self.doc.get('summary'))
+        self.reader.set_document(self.doc['segments'],self.doc['speakers'],selected=index)
+        self.select_segment(index);self.flush_edits()
+        if not editing:return
+        self.open_segment_editor(index)
+        if not self._editor_open:return
+        if draft!=self.segment_editor.get('1.0','end-1c'):
+            self.segment_editor.delete('1.0','end');self.segment_editor.insert('1.0',draft)
+        if draft_speaker in self.doc['speakers']:
+            self._draft_speaker=draft_speaker
+            values=self.speaker_box.cget('values')
+            self.speaker_box.set(values[self._speaker_keys.index(draft_speaker)])
+        self._edit_dirty=dirty
+        if dirty:self.save_status.set('正在校对 · 保存后生效')
+        self.fit_editor_height()
+
+    def cancel_speaker_name(self,_event=None):
+        self.speaker_name_row.pack_forget()
+        self.fit_editor_height()
+        self.segment_editor.focus_set()
+        return 'break'
+
+    def set_page_title(self,title):
+        self._full_title=str(title or '')
+        self.refit_page_title()
+
+    def refit_page_title(self):
+        """Keep the heading to two lines; the full name stays in the document."""
+        from tkinter import font as tkfont
+        from ui_theme import FONT
+        title=self._full_title
+        limit=max(200,int(self.heading_label.cget('wraplength') or 560))*1.8
+        face=tkfont.Font(root=self,family=FONT,size=-20)
+        if face.measure(title)>limit:
+            low,high=1,len(title)
+            while low<high:
+                middle=(low+high+1)//2
+                if face.measure(title[:middle]+'…')<=limit:low=middle
+                else:high=middle-1
+            title=title[:low].rstrip()+'…'
+        if self.page_title.get()!=title:self.page_title.set(title)

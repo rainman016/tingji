@@ -25,6 +25,8 @@ class TranscriptReaderTests(unittest.TestCase):
         self.root.update()
 
     def tearDown(self):
+        for timer in self.root.tk.call('after','info'):
+            self.root.tk.call('after','cancel',timer)
         self.root.destroy()
 
     def active_match(self):
@@ -35,7 +37,8 @@ class TranscriptReaderTests(unittest.TestCase):
         items = [segment("第一段正文。"), segment("Second paragraph.", 65000, "1")]
         self.reader.set_document(items, {"0": "林晓", "1": "Alex"})
         content = self.reader.text.get("1.0", "end-1c")
-        self.assertIn("[00:01:05]  Alex\nSecond paragraph.", content)
+        self.assertIn("00:01:05\tAlex\t校对\nSecond paragraph.", content)
+        self.assertNotIn("[00:", content)
         self.assertEqual(self.reader.text.cget("state"), "disabled")
         self.assertEqual(self.reader.segment_count, 2)
         self.assertEqual(self.reader.selected_index, 0)

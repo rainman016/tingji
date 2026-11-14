@@ -62,12 +62,22 @@ class LocalTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             doc = new_document(make_source(folder))
             run_local_pipeline(doc, folder, threading.Event(), lambda _: None,
-                               service_factory=FakeLocal, extractor=copy_audio)
+                               service_factory=FakeLocal, extractor=copy_audio, auto_summary=True)
             self.assertEqual(FakeLocal.calls, ["asr", "summary"])
             self.assertEqual(doc["engine"], "local-funasr")
             self.assertFalse(doc["task_id"])
             self.assertEqual(doc["status"], "已完成")
             self.assertIn("本地摘要", next(Path(folder).glob("*.json")).read_text(encoding="utf-8"))
+
+    def test_default_pipeline_only_transcribes_and_preserves_legacy_archive(self):
+        with tempfile.TemporaryDirectory() as folder:
+            doc = new_document(make_source(folder))
+            doc['summary']='旧版历史摘要'
+            run_local_pipeline(doc,folder,threading.Event(),lambda _:None,
+                               service_factory=FakeLocal,extractor=copy_audio)
+            self.assertEqual(FakeLocal.calls,['asr'])
+            self.assertEqual(doc['status'],'已转写')
+            self.assertEqual(doc['summary'],'旧版历史摘要')
 
     def test_failed_summary_preserves_text_and_retry_skips_asr(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -75,7 +85,7 @@ class LocalTests(unittest.TestCase):
             FakeLocal.fail_summary = True
             with self.assertRaises(AppError):
                 run_local_pipeline(doc, folder, threading.Event(), lambda _: None,
-                                   service_factory=FakeLocal, extractor=copy_audio)
+                                   service_factory=FakeLocal, extractor=copy_audio, auto_summary=True)
             self.assertEqual(len(doc["segments"]), 2)
             self.assertEqual(doc["status"], "摘要待重试")
             FakeLocal.fail_summary = False

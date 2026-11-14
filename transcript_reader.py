@@ -5,13 +5,14 @@ from bisect import bisect_right
 import re
 import tkinter as tk
 from tkinter import ttk
+import customtkinter as ctk
 
 
 def _timestamp(milliseconds):
     seconds = max(0, int(milliseconds or 0) // 1000)
     hours, remainder = divmod(seconds, 3600)
     minutes, seconds = divmod(remainder, 60)
-    return f"[{hours:02d}:{minutes:02d}:{seconds:02d}]"
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
 
 class TranscriptReader(tk.Frame):
@@ -26,15 +27,16 @@ class TranscriptReader(tk.Frame):
 
     def __init__(self, parent, on_select=None, on_play=None, **styleargs):
         background = styleargs.pop("background", styleargs.pop("bg", "#FFFFFF"))
-        foreground = styleargs.pop("foreground", styleargs.pop("fg", "#20352D"))
-        muted = styleargs.pop("muted_color", "#657369")
-        accent = styleargs.pop("accent_color", "#24674E")
+        foreground = styleargs.pop("foreground", styleargs.pop("fg", "#202C3D"))
+        muted = styleargs.pop("muted_color", "#627186")
+        accent = styleargs.pop("accent_color", "#1F5AE8")
         font = styleargs.pop("font", ("Microsoft YaHei UI", 11))
         metadata_font = styleargs.pop("metadata_font", ("Microsoft YaHei UI", 9))
-        selected_background = styleargs.pop("selected_background", "#F0F6F2")
+        selected_background = styleargs.pop("selected_background", "#EDF3FF")
         match_background = styleargs.pop("match_background", "#FFF0B3")
         active_match_background = styleargs.pop("active_match_background", "#E9CD71")
         self.on_search_change = styleargs.pop("on_search_change", None)
+        self.on_edit = styleargs.pop('on_edit', None)
         super().__init__(parent, background=background, **styleargs)
         self.on_select = on_select
         self.on_play = on_play
@@ -45,21 +47,31 @@ class TranscriptReader(tk.Frame):
         self._query = ""
         self._matches = []
         self._current_match = None
+        self._editor = None
 
         self.text = tk.Text(
             self, wrap="word", state="disabled", undo=False,
             borderwidth=0, highlightthickness=0, relief="flat",
             background=background, foreground=foreground, font=font,
             padx=18, pady=12, spacing2=5, spacing3=8, cursor="xterm", takefocus=True,
-            selectbackground="#D8E9DD", selectforeground=foreground,
+            selectbackground="#DCE8FF", selectforeground=foreground,
             insertbackground=accent,
         )
-        self.scrollbar = ttk.Scrollbar(self, orient="vertical", command=self.text.yview)
+        self.scrollbar = ctk.CTkScrollbar(self, orientation='vertical', command=self.text.yview,
+            width=10, fg_color=background, button_color='#D0DCE3', button_hover_color='#9EB7C2')
         self.text.configure(yscrollcommand=self.scrollbar.set)
         self.text.pack(side="left", fill="both", expand=True)
         self.scrollbar.pack(side="right", fill="y")
         self.text.tag_configure("metadata", foreground=muted, font=metadata_font, spacing1=8, spacing3=3)
-        self.text.tag_configure("timestamp", foreground=accent, underline=True)
+        # Only the selected paragraph's timestamp carries the accent colour.
+        self.text.tag_configure("timestamp", foreground="#708093", underline=False)
+        self.text.tag_configure("current_timestamp", foreground=accent)
+        self.text.tag_configure('edit_action', foreground=muted)
+        # The separator line between paragraphs is kept (indices rely on it)
+        # but rendered as a thin, unhighlighted gap instead of a full row.
+        self.text.tag_configure('gap', font=(metadata_font[0], -4), spacing1=0, spacing2=0, spacing3=0)
+        self.text.tag_configure('body')
+        self.text.tag_configure('editing_body', elide=True)
         self.text.tag_configure("cjk", wrap="char")
         self.text.tag_configure("current_segment", background=selected_background)
         self.text.tag_configure("search_match", background=match_background)
@@ -75,6 +87,59 @@ class TranscriptReader(tk.Frame):
         self.text.bind("<Alt-Up>", lambda _event: self._move_selection(-1))
         self.text.bind("<Alt-Down>", lambda _event: self._move_selection(1))
         self.text.bind("<Alt-Return>", self._play_selected)
+        self.text.bind('<Configure>',lambda _:self.update_layout())
+        for tag in ('timestamp','edit_action'):
+            self.text.tag_bind(tag,'<Enter>',lambda _:self.text.configure(cursor='hand2'))
+            self.text.tag_bind(tag,'<Leave>',lambda _:self.text.configure(cursor='xterm'))
+
+    def update_layout(self):
+        scale=ctk.ScalingTracker.get_widget_scaling(self)
+        gutter=round(88*scale)
+        width=self.text.winfo_width()
+        self.text.tag_configure('body',lmargin1=gutter,lmargin2=gutter)
+        self.text.tag_configure('metadata',tabs=(gutter,'left',max(gutter+120,width-round(55*scale)),'right'))
+        if self._editor:
+            # Height follows the text being corrected, capped so the
+            # paragraph heading above it stays visible in small windows.
+            desired=getattr(self._editor,'_desired_height',205)
+            room=max(150,(self.text.winfo_height()-round(56*scale))/scale)
+            self._editor.configure(width=max(320,(width-gutter-round(45*scale))/scale),
+                height=max(150,min(desired,room)))
+
+    def show_editor(self, widget, index):
+        self.hide_editor()
+        self._editor=widget
+        self.update_layout()
+        self.text.configure(state='normal')
+        try:
+            position=self.text.index(self._body_mark(index))
+            self.text.mark_set('inline_editor',position)
+            self.text.mark_gravity('inline_editor','left')
+            self.text.window_create(position,window=widget,align='top',stretch=False,pady=4)
+            self.text.tag_add('body','inline_editor','inline_editor+1c')
+            self.text.tag_add('editing_body',self._body_mark(index),f'{self._end_index(index)}-2c')
+            self.text.see('inline_editor')
+        finally:self.text.configure(state='disabled')
+        self.after_idle(self._reveal_editor,index)
+
+    def _reveal_editor(self,index):
+        # Runs once the embedded editor has its real size: show all of it,
+        # then make sure the paragraph's timestamp/speaker line is not cut.
+        if self._editor and 'inline_editor' in self.text.mark_names() and index<self.segment_count:
+            self.text.see('inline_editor')
+            self.text.see(self._start_mark(index))
+
+    def hide_editor(self):
+        if self._editor:
+            self.text.configure(state='normal')
+            try:
+                if 'inline_editor' in self.text.mark_names():
+                    self.text.window_configure('inline_editor',window='')
+                    self.text.delete('inline_editor','inline_editor+1c')
+                    self.text.mark_unset('inline_editor')
+                self.text.tag_remove('editing_body','1.0','end')
+            finally:self.text.configure(state='disabled')
+            self._editor=None
 
     @property
     def selected_index(self):
@@ -103,7 +168,7 @@ class TranscriptReader(tk.Frame):
         body = str(segment.get("text", ""))
         # Speaker names are metadata on one line, even in imported documents.
         speaker = " ".join(str(speaker).splitlines())
-        return f"{stamp}  {speaker}\n{body}\n\n"
+        return f"{stamp}\t{speaker}\t校对\n{body}\n\n"
 
     def _mark_segment(self, index, start_line):
         start = f"{start_line}.0"
@@ -115,8 +180,11 @@ class TranscriptReader(tk.Frame):
         self.text.mark_gravity(self._body_mark(index), "right")
         self.text.tag_add("metadata", start, f"{body}-1c")
         self.text.tag_add("timestamp", start, f"{start}+{len(_timestamp(self._segments[index].get('start_ms', 0)))}c")
+        self.text.tag_add('edit_action',f'{start_line}.end-2c',f'{start_line}.end')
         content = str(self._segments[index].get('text', ''))
         end = f"{start_line + content.count(chr(10)) + 1}.end"
+        self.text.tag_add('body',body,end)
+        self.text.tag_add('gap',f'{end}+1c',f'{end}+2c')
         self.text.tag_remove('cjk', start, f'{end}+1c')
         if len(re.findall(r'[\u3400-\u9fff]', content)) > len(content) * .2:
             self.text.tag_add('cjk', body, end)
@@ -129,6 +197,7 @@ class TranscriptReader(tk.Frame):
             line += str(segment.get("text", "")).count("\n") + 3
 
     def set_document(self, segments, speakers, selected=0):
+        self.hide_editor()
         old_count = self.segment_count
         self._segments = [dict(segment) for segment in segments]
         self._speakers = dict(speakers)
@@ -152,13 +221,18 @@ class TranscriptReader(tk.Frame):
         if index is None or not self._segments:
             self._selected = None
             self.text.tag_remove("current_segment", "1.0", "end")
+            self.text.tag_remove("current_timestamp", "1.0", "end")
             return None
         index = int(index)
         if not 0 <= index < self.segment_count:
             return None
         self._selected = index
         self.text.tag_remove("current_segment", "1.0", "end")
-        self.text.tag_add("current_segment", self._start_mark(index), self._end_index(index))
+        self.text.tag_remove("current_timestamp", "1.0", "end")
+        # Stop before the separator line so the tint hugs the paragraph.
+        self.text.tag_add("current_segment", self._start_mark(index), f"{self._end_index(index)}-1c")
+        start = self.text.index(self._start_mark(index))
+        self.text.tag_add("current_timestamp", start, f"{start}+{len(_timestamp(self._segments[index].get('start_ms', 0)))}c")
         self.text.mark_set("insert", self._body_mark(index))
         if scroll:
             self.text.see(self._start_mark(index))
@@ -212,9 +286,9 @@ class TranscriptReader(tk.Frame):
         self.text.yview("transcript_viewport")
         self.text.mark_unset("transcript_viewport")
 
-    def search(self, query):
+    def search(self, query, activate=True):
         self._query = str(query or "")
-        return self._rebuild_search(activate=True)
+        return self._rebuild_search(activate=activate)
 
     def _body_position(self, number, body, line_offsets, offset):
         relative_line = bisect_right(line_offsets, offset) - 1
@@ -279,11 +353,15 @@ class TranscriptReader(tk.Frame):
             return
         number = self._segment_at(position)
         is_timestamp = "timestamp" in self.text.tag_names(position)
-        bounds = self.text.bbox(position) if is_timestamp else None
+        is_edit = 'edit_action' in self.text.tag_names(position)
+        bounds = self.text.bbox(position) if is_timestamp or is_edit else None
         hit_timestamp = bool(bounds and bounds[0] <= event.x < bounds[0] + bounds[2]
                              and bounds[1] <= event.y < bounds[1] + bounds[3])
         self.select(number, scroll=False)
-        if hit_timestamp and self.on_play is not None:
+        if hit_timestamp and is_edit and self.on_edit is not None:
+            self.on_edit(number)
+            return 'break'
+        if hit_timestamp and is_timestamp and self.on_play is not None:
             self.on_play(number)
 
     def _move_selection(self, direction):
